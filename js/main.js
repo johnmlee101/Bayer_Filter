@@ -15,7 +15,9 @@ class BayerImage {
         let ctx = document.getElementById(id);
         this.ctx = ctx.getContext('2d');
 
-        this.imgWidth = width / 4;
+        this.imgWidth = width / 3;
+        this.grayScale = false;
+        this.testAdjustedGreen = true;
     }
 
     /**
@@ -88,9 +90,9 @@ class BayerImage {
         for (let i = y; i < y + width; i++) {
             for (let ii = x; ii < x + width; ii++) {
                 const colorIndicies = this.getColorIndicesForCoord(ii, i, imageData.width);
-                imageData.data[colorIndicies[0]] = colorIndex === 0 ? colorValue : 0;
-                imageData.data[colorIndicies[1]] = colorIndex === 1 ? colorValue : 0;
-                imageData.data[colorIndicies[2]] = colorIndex === 2 ? colorValue : 0;
+                imageData.data[colorIndicies[0]] = colorIndex === 0 || this.grayScale ? colorValue : 0;
+                imageData.data[colorIndicies[1]] = colorIndex === 1 || this.grayScale ? (this.testAdjustedGreen ? Math.pow(Math.pow(colorValue, 2) / 2, 0.5 ) : colorValue) : 0;
+                imageData.data[colorIndicies[2]] = colorIndex === 2 || this.grayScale ? colorValue : 0;
                 imageData.data[colorIndicies[3]] = 255;
             }
         }
@@ -112,13 +114,14 @@ class BayerImage {
         let n = 0;
         for (let i = y; i < y + width; i++) {
             for (let ii = x; ii < x + width; ii++) {
-                const value = this.imageData.data[this.getColorIndicesForCoord(ii, i)[colorIndex]];
+                // Square the values since averaging colors helps with any odd transitions.
+                const value = Math.pow(this.imageData.data[this.getColorIndicesForCoord(ii, i)[colorIndex]] / 255, 2) * 255;
                 cumulativeAverage += (value - cumulativeAverage) / (n + 1);
                 n++;
             }
         }
 
-        return cumulativeAverage;
+        return Math.pow(cumulativeAverage / 255, 0.5) * 255;
     }
 
     /**
@@ -138,7 +141,7 @@ class BayerImage {
             callback(this);
         };
 
-        img1.src = 'test.jpg';
+        img1.src = this.url;
     }
 
     /**
@@ -163,6 +166,8 @@ class BayerImage {
     /**
      * Breaks the image into "Bayer" pixels in which it will take the characteristic rggb grid.
      * We'll need to group up the values of multiple pixels to get a RGB value.
+     *
+     * @returns {Array[Array]} 2D Bayer array representation.
      */
     calculateBayerPixelRepresentation() {
         if (!this.imageData) {
@@ -188,9 +193,10 @@ class BayerImage {
             }
         }
 
-        this.ctx.putImageData(this.imageData, 0, 0);
+        // Commit this data to the second image slot!
+        this.ctx.putImageData(this.imageData, this.imgWidth, 0);
 
-        console.log(bayerArray);
+        return bayerArray;
     }
 
 }
@@ -211,7 +217,6 @@ $(() => {
         // Debugging so far.
         console.log(self.imageData);
         console.log(self.getRGBAFromCoord(0, 0, self.imageData));
-        self.ctx.putImageData(self.setRGBA(0, 0, [0,0,0,0], self.imageData), 0, 0);
         self.calculateBayerPixelRepresentation();
     });
 });
