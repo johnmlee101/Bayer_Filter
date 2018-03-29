@@ -8,12 +8,14 @@ class BayerImage {
      */
     constructor(id, url) {
         // Start with a 5px pixel size.
-        this.BAYER_PIXEL_SIZE = 5;
+        this.BAYER_PIXEL_SIZE = 1;
 
         this.id = id;
         this.url = url;
         let ctx = document.getElementById(id);
         this.ctx = ctx.getContext('2d');
+
+        this.imgWidth = width / 4;
     }
 
     /**
@@ -26,6 +28,7 @@ class BayerImage {
      * @return array [r index, g index, b index, a index]
      */
     getColorIndicesForCoord(x, y, width) {
+        width = width || this.imageData.width;
         const red = y * (width * 4) + x * 4;
 
         return [red, red + 1, red + 2, red + 3];
@@ -73,24 +76,88 @@ class BayerImage {
     }
 
     /**
+     *
+     * @param {Number} x
+     * @param {Number} y
+     * @param {Number} width
+     * @param {Number} colorIndex
+     * @param {Number} colorValue
+     * @param {ImageData} imageData
+     */
+    drawSquare(x, y, width, colorIndex, colorValue, imageData) {
+        for (let i = y; i < y + width; i++) {
+            for (let ii = x; ii < x + width; ii++) {
+                const colorIndicies = this.getColorIndicesForCoord(ii, i, imageData.width);
+                imageData.data[colorIndicies[0]] = colorIndex === 0 ? colorValue : 0;
+                imageData.data[colorIndicies[1]] = colorIndex === 1 ? colorValue : 0;
+                imageData.data[colorIndicies[2]] = colorIndex === 2 ? colorValue : 0;
+                imageData.data[colorIndicies[3]] = 255;
+            }
+        }
+
+        return imageData;
+    }
+
+    /**
+     * Returns the average values of a certain color in a square range.
+     * Uses a cumulative average.
+     *
+     * @param {Number} x Starting position (Left)
+     * @param {Number} y Starting position (Top)
+     * @param {Number} width
+     * @param {Number} colorIndex R,G,B,A => 0,1,2,3
+     */
+    averageOfSquare(x, y, width, colorIndex) {
+        let cumulativeAverage = 0;
+        let n = 0;
+        for (let i = y; i < y + width; i++) {
+            for (let ii = x; ii < x + width; ii++) {
+                const value = this.imageData.data[this.getColorIndicesForCoord(ii, i)[colorIndex]];
+                cumulativeAverage += (value - cumulativeAverage) / (n + 1);
+                n++;
+            }
+        }
+
+        return cumulativeAverage;
+    }
+
+    /**
      * Draws the image.
      *
      * @param {Callback} callback
      */
     drawInitialImage(callback) {
-        //Loading of the home test image - img1
         const img1 = new Image();
 
-        //drawing of the test image - img1
         img1.onload = () => {
-            //draw background image
-            this.ctx.drawImage(img1, 0, 0, img1.width / 5, img1.height / 5);
+            // The width should match the screen size / 4. Adjust the ratios to match.
+            this.imgHeight = this.imgWidth * (img1.height / img1.width);
+            this.ctx.drawImage(img1, 0, 0, this.imgWidth, this.imgHeight);
             this.imageData = this.ctx.getImageData(0, 0, width, height);
 
             callback(this);
         };
 
         img1.src = 'test.jpg';
+    }
+
+    /**
+     * Get the bayer color grid representation.
+     * Row 1 alternates B G
+     * Row 2 alternates G R
+     *
+     * @param {Number} x
+     * @param {Number} y
+     *
+     * @returns {Number} ColorIndex
+     */
+    getBayerColorAtLocation(x, y) {
+        // First row.
+        if (y % 2) {
+            return x % 2 ? 2 : 1;
+        }
+
+        return x % 2 ? 1 : 0;
     }
 
     /**
@@ -102,12 +169,28 @@ class BayerImage {
             return;
         }
 
-        // Reduce the image into bayer pixels.
-        for (let i = 0; i < this.imageData.width / this.BAYER_PIXEL_SIZE; i++) {
-            for (let ii = 0; ii < this.imageData.height / this.BAYER_PIXEL_SIZE; ii++) {
+        const bayerArray = [];
 
+        // Reduce the image into bayer pixels.
+        for (let i = 0; i < this.imageData.height / this.BAYER_PIXEL_SIZE; i++) {
+            bayerArray[i] = [];
+            for (let ii = 0; ii < this.imageData.width / this.BAYER_PIXEL_SIZE; ii++) {
+                const gridColor = this.getBayerColorAtLocation(ii, i);
+                bayerArray[i][ii] = this.averageOfSquare(
+                    ii * this.BAYER_PIXEL_SIZE,
+                    i * this.BAYER_PIXEL_SIZE,
+                    this.BAYER_PIXEL_SIZE,
+                    gridColor
+                );
+
+                // Draw this in the second image slot.
+                this.drawSquare(ii * this.BAYER_PIXEL_SIZE, i * this.BAYER_PIXEL_SIZE, this.BAYER_PIXEL_SIZE, gridColor, bayerArray[i][ii], this.imageData)
             }
         }
+
+        this.ctx.putImageData(this.imageData, 0, 0);
+
+        console.log(bayerArray);
     }
 
 }
@@ -129,5 +212,6 @@ $(() => {
         console.log(self.imageData);
         console.log(self.getRGBAFromCoord(0, 0, self.imageData));
         self.ctx.putImageData(self.setRGBA(0, 0, [0,0,0,0], self.imageData), 0, 0);
+        self.calculateBayerPixelRepresentation();
     });
 });
